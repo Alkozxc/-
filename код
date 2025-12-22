@@ -1,0 +1,88 @@
+# подключаем нужные части библиотеки для Telegram-бота
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup #класс для создания кнопки под сообщением, # 2 упоковывает кнопки в нужный формат
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+
+# подключаем requests — чтобы слать запросы в интернет (к Google Translate)
+import requests
+
+# токен бота
+TOKEN = "8015046189:AAHCrM2Lagedg4fCA0T7rAdMIAr53nTTyG4"
+
+# языки: кнопка → код языка
+LANGS = {
+    "Русский": "ru",
+    "English": "en",
+    "Deutsch": "de",
+    "Français": "fr",
+    "Español": "es"
+}
+
+# /start — начинаем новый перевод, async используются для асинхронного выполнения кода, чтобы бот мог обрабатывать несколько пользователей одновременно
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()  # сбрасываем прошлые настройки
+    # создаём кнопки: "с какого языка?"
+    keyboard = [[InlineKeyboardButton(k, callback_data=f"from_{v}")] for k, v in LANGS.items()]
+    await update.message.reply_text("С какого языка переводим?", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# обработка выбора языка "с которого"
+async def from_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    context.user_data["from"] = q.data[5:]  # Берём код языка после "from"
+    # Теперь кнопки: "на какой язык?"
+    keyboard = [[InlineKeyboardButton(k, callback_data=f"to_{v}")] for k, v in LANGS.items()]
+    await q.edit_message_text("На какой язык?", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# обработка выбора языка "на который"
+async def to_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    context.user_data["to"] = q.data[3:]  # Берём код после "to_"
+    await q.edit_message_text("Отправь текст для перевода")
+
+# перевод присланного текста
+async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    sl = context.user_data["from"]  # язык "с"
+    tl = context.user_data["to"]    # язык "на"
+
+    # ИСПРАВЛЕНО: убраны лишние пробелы в URL!
+    url = "https://translate.googleapis.com/translate_a/single"
+
+    params = {
+        "client": "gtx",
+        "sl": sl,
+        "tl": tl,
+        "dt": "t",
+        "q": text
+    }
+
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        data = r.json()
+        # собираем перевод из ответа Google
+        result = "".join([item[0] for item in data[0]])
+        await update.message.reply_text(result)
+    except Exception as e:
+        print(e)
+        await update.message.reply_text("Ошибка перевода")
+
+# объявляет асинхронную функцию stop и сбрасывает
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear() #очищает словарь user_data для текущего пользователя
+    await update.message.reply_text("Перевод остановлен \nЧтобы начать снова — отправь /start") # Отправляет ответное сообщение пользователю
+
+# создаем бота, используя TOKEN
+app = ApplicationBuilder().token(TOKEN).build()
+
+# регистрируем обработчики событий
+
+app.add_handler(CommandHandler("start", start)) #регистрирует обработчик для команды /start
+app.add_handler(CallbackQueryHandler(from_lang, pattern="^from_")) #регистрирует обработчик для callback-запросов
+app.add_handler(CallbackQueryHandler(to_lang, pattern="^to_")) #для выбора языка, на который переводить
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, translate)) #"любое текстовое сообщение, которое НЕ является командой"
+app.add_handler(CommandHandler("stop", stop))
+
+print("Бот запущен")
+# запускаем бота в режиме polling (он сам запрашивает у Telegram новые сообщения)
+app.run_polling()
