@@ -46,6 +46,9 @@ async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sl = context.user_data["from"]  # язык "с"
     tl = context.user_data["to"]    # язык "на"
 
+    # ИСПРАВЛЕНО: убраны лишние пробелы в URL!
+    url = "https://translate.googleapis.com/translate_a/single"
+
     params = {
         "client": "gtx",
         "sl": sl,
